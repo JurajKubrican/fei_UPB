@@ -13,6 +13,8 @@ file = 'img.jpg'
 
 KEY_LENGTH = 1024
 
+file_key_length = 128
+
 
 
 
@@ -66,8 +68,11 @@ def encrypt(file_name):
 
     outfile = open(enc_dir + file_name, 'wb')
 
+    encrypted_key = enc_RSA(key)
     outfile.write(struct.pack('<Q', filesize))
     outfile.write(iv)
+    outfile.write(encrypted_key[0])
+
     print('encrypting')
     while True:
         print('.', end="")
@@ -77,10 +82,6 @@ def encrypt(file_name):
         chunk = pad16(chunk)
         outfile.write(cipher.encrypt(chunk))
 
-    keyfile = open(enc_dir + file_name + '.key', 'wb')
-    encrypted_key = enc_RSA(key)
-    print(len(encrypted_key[0]));
-    keyfile.write(encrypted_key[0])
 
 
 encrypt(file)
@@ -91,9 +92,7 @@ def decrypt(file_name):
     rawfilesize = infile.read(struct.calcsize('Q'))
     filesize = struct.unpack('<Q', rawfilesize)[0]
     iv = infile.read(AES.block_size)
-
-    keyfile = open(enc_dir + file_name + '.key', 'rb')
-    key = keyfile.read()
+    key = infile.read(file_key_length)
     key = dec_RSA(key)
 
     # print(b'key: ' + key)
