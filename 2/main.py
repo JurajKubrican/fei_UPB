@@ -1,6 +1,8 @@
 import os
 import struct
 import sys
+import hashlib
+import pickle
 
 from datetime import datetime
 from Crypto.Cipher import AES
@@ -18,6 +20,34 @@ KEY_LENGTH = 1024
 file_key_length = 128
 
 
+def sign(filename, signature_file, key_file):
+    sha256 = hashlib.sha256()
+    with open(filename, 'rb') as f:
+        for block in iter(lambda: f.read(chunksize), b''):
+            sha256.update(block)
+
+    file = open(key_file)
+    key = RSA.importKey(file.read())
+
+    checksum = sha256.hexdigest().encode('utf-8')
+    signature = key.sign(checksum,'')
+    pickle.dump(signature,open(signature_file,'wb'))
+
+
+def verify(filename, signature_file, private_key):
+    sha256 = hashlib.sha256()
+    with open(filename, 'rb') as f:
+        for block in iter(lambda: f.read(chunksize), b''):
+            sha256.update(block)
+
+    signature = pickle.load(open(signature_file,'rb'))
+
+    checksum = sha256.hexdigest().encode('utf-8')
+    pub_key = open(private_key).read()
+    key = RSA.importKey(pub_key).publickey()
+    return key.verify(checksum, signature)
+
+
 def pad16(data):
     if (len(data) % 16 == 0):
         return data
@@ -30,9 +60,17 @@ def genKeys():
     random_gen = Random.new().read
     private_key = RSA.generate(KEY_LENGTH, random_gen)
 
-    file = open(key_dir + 'key', 'wb')
+    file = open(key_dir + 'sender', 'wb')
     file.write(private_key.exportKey())
-    file = open(key_dir + 'key.pub', 'wb')
+    file = open(key_dir + 'sender.pub', 'wb')
+    file.write(private_key.publickey().exportKey())
+
+    random_gen = Random.new().read
+    private_key = RSA.generate(KEY_LENGTH, random_gen)
+
+    file = open(key_dir + 'receiver', 'wb')
+    file.write(private_key.exportKey())
+    file = open(key_dir + 'receiver.pub', 'wb')
     file.write(private_key.publickey().exportKey())  # genKeys()
 
 
@@ -43,8 +81,8 @@ def enc_RSA(message, public_key):
     return key.encrypt(message, 32)
 
 
-def dec_RSA(encrypted):
-    file = open('keys/key')
+def dec_RSA(encrypted, private_key):
+    file = open(private_key)
     pub_key = file.read()
     key = RSA.importKey(pub_key)
     return key.decrypt(encrypted)
@@ -77,6 +115,9 @@ def encrypt(file_name, public_key):
             break
         chunk = pad16(chunk)
         outfile.write(cipher.encrypt(chunk))
+
+    sign(enc_dir + file_name, enc_dir + 'signature', key_dir + 'sender')
+
     print()
     print('Finished, took: ', end='')
     print(datetime.now() - time, end="\n")
@@ -87,13 +128,15 @@ def decrypt(file_name):
         os.makedirs(dec_dir)
 
     time = datetime.now()
-
+    if(verify(enc_dir + file_name, enc_dir + 'signature', key_dir + 'sender.pub') == 0):
+        print('Message not verified!! exitting')
+        return
     infile = open(enc_dir + file_name, 'rb')
     rawfilesize = infile.read(struct.calcsize('Q'))
     filesize = struct.unpack('<Q', rawfilesize)[0]
     iv = infile.read(AES.block_size)
     key = infile.read(file_key_length)
-    key = dec_RSA(key)
+    key = dec_RSA(key, key_dir + 'sender')
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
     outfile = open(dec_dir + file_name, 'wb')
@@ -107,8 +150,8 @@ def decrypt(file_name):
 
     outfile.truncate(filesize)
     print()
-    print('Finished, took: ' ,end='')
-    print(datetime.now() - time,end="\n")
+    print('Finished, took: ', end='')
+    print(datetime.now() - time, end="\n")
 
 
 def main():
