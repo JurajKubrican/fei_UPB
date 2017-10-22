@@ -10,14 +10,19 @@ from Crypto import Random
 from Crypto.PublicKey import RSA
 
 chunksize = 1024 * 64
-enc_dir = 'enc/'
-dec_dir = 'dec/'
-key_dir = 'keys/'
-in_dir = 'in/'
 
 KEY_LENGTH = 1024
 
 file_key_length = 128
+
+
+def add_prefix(path):
+    dir_name = os.path.dirname(path)
+    file_name = os.path.basename(path)
+    file_name = 'dec-' + file_name
+    if (len(dir_name)):
+        return dir_name + '/' + file_name
+    return file_name
 
 
 def sign(filename, signature_file, key_file):
@@ -30,8 +35,8 @@ def sign(filename, signature_file, key_file):
     key = RSA.importKey(file.read())
 
     checksum = sha256.hexdigest().encode('utf-8')
-    signature = key.sign(checksum,'')
-    pickle.dump(signature,open(signature_file,'wb'))
+    signature = key.sign(checksum, '')
+    pickle.dump(signature, open(signature_file, 'wb'))
 
 
 def verify(filename, signature_file, private_key):
@@ -40,7 +45,7 @@ def verify(filename, signature_file, private_key):
         for block in iter(lambda: f.read(chunksize), b''):
             sha256.update(block)
 
-    signature = pickle.load(open(signature_file,'rb'))
+    signature = pickle.load(open(signature_file, 'rb'))
 
     checksum = sha256.hexdigest().encode('utf-8')
     pub_key = open(private_key).read()
@@ -54,24 +59,14 @@ def pad16(data):
     return data + b'=' * (16 - len(data) % 16)
 
 
-def genKeys():
-    if (os.path.exists(key_dir) == 0):
-        os.makedirs(key_dir)
+def genKeys(key_file):
     random_gen = Random.new().read
     private_key = RSA.generate(KEY_LENGTH, random_gen)
 
-    file = open(key_dir + 'sender', 'wb')
+    file = open(key_file, 'wb')
     file.write(private_key.exportKey())
-    file = open(key_dir + 'sender.pub', 'wb')
+    file = open(key_file + '.pub', 'wb')
     file.write(private_key.publickey().exportKey())
-
-    random_gen = Random.new().read
-    private_key = RSA.generate(KEY_LENGTH, random_gen)
-
-    file = open(key_dir + 'receiver', 'wb')
-    file.write(private_key.exportKey())
-    file = open(key_dir + 'receiver.pub', 'wb')
-    file.write(private_key.publickey().exportKey())  # genKeys()
 
 
 def enc_RSA(message, public_key):
@@ -88,21 +83,19 @@ def dec_RSA(encrypted, private_key):
     return key.decrypt(encrypted)
 
 
-def encrypt(file_name, public_key):
-    if (os.path.exists(enc_dir) == 0):
-        os.makedirs(enc_dir)
+def encrypt(file_name, sender_private, receiver_public):
     time = datetime.now()
     key = Random.new().read(16)
     iv = Random.new().read(AES.block_size)
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
 
-    infile = open(in_dir + file_name, 'rb')
-    filesize = os.path.getsize(in_dir + file_name)
+    infile = open(file_name, 'rb')
+    filesize = os.path.getsize(file_name)
 
-    outfile = open(enc_dir + file_name, 'wb')
+    outfile = open(file_name + '.enc', 'wb')
 
-    encrypted_key = enc_RSA(key, public_key)
+    encrypted_key = enc_RSA(key, receiver_public)
     outfile.write(struct.pack('<Q', filesize))
     outfile.write(iv)
     outfile.write(encrypted_key[0])
@@ -116,30 +109,29 @@ def encrypt(file_name, public_key):
         chunk = pad16(chunk)
         outfile.write(cipher.encrypt(chunk))
 
-    sign(enc_dir + file_name, enc_dir + 'signature', key_dir + 'sender')
+    sign(file_name, file_name + '.sign', sender_private)
 
     print()
     print('Finished, took: ', end='')
     print(datetime.now() - time, end="\n")
 
 
-def decrypt(file_name):
-    if (os.path.exists(dec_dir) == 0):
-        os.makedirs(dec_dir)
-
+def decrypt(file_name, sender_public, receiver_private):
     time = datetime.now()
-    if(verify(enc_dir + file_name, enc_dir + 'signature', key_dir + 'sender.pub') == 0):
+    signature_file = file_name.replace('.enc', '.sign')
+    if (verify(file_name, signature_file, sender_public) == 0):
         print('Message not verified!! exitting')
         return
-    infile = open(enc_dir + file_name, 'rb')
+
+    infile = open(file_name, 'rb')
     rawfilesize = infile.read(struct.calcsize('Q'))
     filesize = struct.unpack('<Q', rawfilesize)[0]
     iv = infile.read(AES.block_size)
     key = infile.read(file_key_length)
-    key = dec_RSA(key, key_dir + 'sender')
+    key = dec_RSA(key, receiver_private)
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    outfile = open(dec_dir + file_name, 'wb')
+    outfile = open(add_prefix(file_name), 'wb')
     print('decrypting', end="")
     while True:
         print('.', end="")
@@ -156,18 +148,36 @@ def decrypt(file_name):
 
 def main():
     if len(sys.argv) > 1:
-        if sys.argv[1] == "G":
-            genKeys()
-            print("Keys has been generated")
-        elif sys.argv[1] == "E":
-            encrypt(sys.argv[2], sys.argv[3])
-        elif sys.argv[1] == "D":
-            decrypt(sys.argv[2])
+        mode = sys.argv[1].upper()
+        if mode == "G":
+            if (len(sys.argv) == 3):
+                genKeys(sys.argv[2])
+                print("Key pair " + sys.argv[2] + " has been generated")
+            else:
+                print('usage: main.py G [key_name]')
+        elif mode == "E":
+            if (len(sys.argv) == 5):
+                encrypt(sys.argv[2], sys.argv[3], sys.argv[4])
+            else:
+                print('usage: main.py E [filename] [sender_private_key] [receiver_public_key]')
+        elif mode == "D":
+            if (len(sys.argv) == 5):
+                decrypt(sys.argv[2], sys.argv[3], sys.argv[4])
+            else:
+                print('usage: main.py  [filename] [sender_public_key] [receiver_private_key]')
         else:
-            print("Invalid argument")
+            print("Available modes: [G E D]")
+            print("mode G: generate key pair")
+            print("mode E: encrypt")
+            print("mode D: decrypt")
+            print("for help enter main.py [mode]")
 
     else:
-        print("Invalid argument")
+        print("Available modes: [G E D]")
+        print("mode G: generate key pair")
+        print("mode E: encrypt")
+        print("mode D: decrypt")
+        print("for help enter main.py [mode]")
 
 
 if __name__ == "__main__":
