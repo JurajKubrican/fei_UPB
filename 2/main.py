@@ -164,7 +164,7 @@ def main():
             if (len(sys.argv) == 5):
                 decrypt(sys.argv[2], sys.argv[3], sys.argv[4])
             else:
-                print('usage: main.py  [filename] [sender_public_key] [receiver_private_key]')
+                print('usage: main.py D [filename] [sender_public_key] [receiver_private_key]')
         else:
             print("Available modes: [G E D]")
             print("mode G: generate key pair")
