@@ -109,7 +109,7 @@ def encrypt(file_name, sender_private, receiver_public):
         chunk = pad16(chunk)
         outfile.write(cipher.encrypt(chunk))
 
-    sign(file_name, file_name + '.sign', sender_private)
+    sign(file_name + '.enc', file_name + '.sign', sender_private)
 
     print()
     print('Finished, took: ', end='')
