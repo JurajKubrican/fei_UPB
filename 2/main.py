@@ -16,10 +16,10 @@ KEY_LENGTH = 1024
 file_key_length = 128
 
 
-def add_prefix(path):
+def dec_filename(path):
     dir_name = os.path.dirname(path)
     file_name = os.path.basename(path)
-    file_name = 'dec-' + file_name
+    file_name = 'dec-' + file_name.replace('.enc', '')
     if (len(dir_name)):
         return dir_name + '/' + file_name
     return file_name
@@ -131,7 +131,7 @@ def decrypt(file_name, sender_public, receiver_private):
     key = dec_RSA(key, receiver_private)
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    outfile = open(add_prefix(file_name), 'wb')
+    outfile = open(dec_filename(file_name), 'wb')
     print('decrypting', end="")
     while True:
         print('.', end="")
